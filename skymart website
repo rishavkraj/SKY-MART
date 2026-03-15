@@ -1,0 +1,219 @@
+
+from flask import Flask, render_template, request, redirect, session
+import sqlite3
+import os
+
+app = Flask(__name__)
+app.secret_key = "skymart_secret_key"
+
+DB_NAME = "database.db"
+
+
+def connect_db():
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    conn = connect_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS products(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        image TEXT,
+        price INTEGER
+    )
+    """)
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        password TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+@app.route("/")
+def home():
+    return "<h1>Welcome to SKY MART</h1><p>Website is running successfully.</p>"
+
+
+@app.route("/shop")
+def shop():
+    conn = connect_db()
+    cur = conn.cursor()
+
+    cur.execute("SELECT * FROM products")
+    products = cur.fetchall()
+
+    html = "<h1>Shop Products</h1>"
+
+    for p in products:
+        html += f"""
+        <div>
+            <h3>{p['name']}</h3>
+            <p>₹{p['price']}</p>
+            <a href="/add_to_cart/{p['id']}"><button>Add to Cart</button></a>
+        </div>
+        <hr>
+        """
+
+    return html
+
+
+@app.route("/add_to_cart/<int:pid>")
+def add_to_cart(pid):
+
+    if "cart" not in session:
+        session["cart"] = []
+
+    session["cart"].append(pid)
+    session.modified = True
+
+    return redirect("/cart")
+
+
+@app.route("/cart")
+def cart():
+
+    if "cart" not in session:
+        return "<h2>Cart is empty</h2>"
+
+    conn = connect_db()
+    cur = conn.cursor()
+
+    items = []
+    total = 0
+
+    for pid in session["cart"]:
+        cur.execute("SELECT * FROM products WHERE id=?", (pid,))
+        product = cur.fetchone()
+
+        if product:
+            items.append(product)
+            total += product["price"]
+
+    html = "<h1>Your Cart</h1>"
+
+    for i in items:
+        html += f"<p>{i['name']} - ₹{i['price']}</p>"
+
+    html += f"<h2>Total: ₹{total}</h2>"
+    html += '<a href="/payment"><button>Proceed to Payment</button></a>'
+
+    return html
+
+
+@app.route("/payment")
+def payment():
+    return """
+    <h1>Checkout</h1>
+    <p>Select Payment Method</p>
+    <button>UPI</button>
+    <button>Card</button>
+    <button>Net Banking</button>
+    """
+
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+
+    if request.method == "POST":
+
+        email = request.form["email"]
+        password = request.form["password"]
+
+        conn = connect_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            "INSERT INTO users(email,password) VALUES(?,?)",
+            (email, password)
+        )
+
+        conn.commit()
+        conn.close()
+
+        return redirect("/login")
+
+    return """
+    <h1>Signup</h1>
+    <form method="POST">
+        <input name="email" placeholder="Email"><br><br>
+        <input name="password" placeholder="Password" type="password"><br><br>
+        <button>Signup</button>
+    </form>
+    """
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+
+    if request.method == "POST":
+
+        email = request.form["email"]
+        password = request.form["password"]
+
+        conn = connect_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT * FROM users WHERE email=? AND password=?",
+            (email, password)
+        )
+
+        user = cur.fetchone()
+
+        if user:
+            session["user"] = email
+            return redirect("/")
+
+    return """
+    <h1>Login</h1>
+    <form method="POST">
+        <input name="email" placeholder="Email"><br><br>
+        <input name="password" placeholder="Password" type="password"><br><br>
+        <button>Login</button>
+    </form>
+    """
+
+
+@app.route("/admin", methods=["GET", "POST"])
+def admin():
+
+    if request.method == "POST":
+
+        name = request.form["name"]
+        price = request.form["price"]
+
+        conn = connect_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            "INSERT INTO products(name,price,image) VALUES(?,?,?)",
+            (name, price, "")
+        )
+
+        conn.commit()
+        conn.close()
+
+    return """
+    <h1>Admin Panel</h1>
+    <form method="POST">
+        <input name="name" placeholder="Product Name"><br><br>
+        <input name="price" placeholder="Price"><br><br>
+        <button>Add Product</button>
+    </form>
+    """
+
+
+if __name__ == "__main__":
+    init_db()
+    app.run(debug=True)
